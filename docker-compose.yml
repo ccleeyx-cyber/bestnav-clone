@@ -1,0 +1,65 @@
+services:
+  bestnav:
+    image: bestnav-clone:0.1.0
+    container_name: bestnav
+    hostname: bestnav
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "10788:3000"
+    volumes:
+      - bestnav_data:/app/data
+      - /etc/machine-id:/etc/machine-id:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - BESTNAV_SECRET=${BESTNAV_SECRET:-change-me-in-production}
+      - BESTNAV_DATA_DIR=/app/data
+      # 接入 Docker 容器管理时启用（需要配套的只读代理）
+      # - DOCKER_HOST=tcp://socket-proxy:2375
+    depends_on:
+      socket-proxy:
+        condition: service_started
+        required: false
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 只读 Docker 代理：仅放行容器列表/详情/stats/日志与启停重启。
+  # 应用侧也会再做一层路径 ACL，不直接暴露 docker.sock。
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: bestnav-socket-proxy
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - CONTAINERS=1
+      - INFO=1
+      - PING=1
+      - VERSION=1
+      - POST=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - bestnav
+
+networks:
+  bestnav:
+    name: bestnav
+
+volumes:
+  bestnav_data:
+    name: bestnav_data
